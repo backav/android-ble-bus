@@ -405,10 +405,16 @@ public class BleBus {
         public void onConnectionStateChange(final BluetoothGatt gatt,
                                             int status, int newState) {
 
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                gatt.close();
+                log.error("连接失败:status=" + status + ",state" + newState);
+                return;
+            }
+
             String address = gatt.getDevice().getAddress();
 
             final String deviceInfo = gatt.getDevice().getName() + ":" + gatt.getDevice().getAddress();
-            log.warn("设备[" + deviceInfo + "]连接状态改变:" + status + " > " + newState);
+            log.warn("设备[" + deviceInfo + "]连接状态改变:" + status + " & " + newState);
             if (newState == BluetoothGatt.STATE_CONNECTED) {
 
                 synchronized (mConnectingGatts) {
