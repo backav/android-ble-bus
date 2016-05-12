@@ -410,7 +410,7 @@ public class BleBus {
 
             final String deviceInfo = gatt.getDevice().getName() + ":" + gatt.getDevice().getAddress();
             log.warn("设备[" + deviceInfo + "]连接状态改变:" + status + " & " + newState);
-            if (status != BluetoothGatt.GATT_SUCCESS && newState == BluetoothGatt.STATE_CONNECTED) {
+            if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothGatt.STATE_CONNECTED) {
 
                 synchronized (mConnectingGatts) {
                     BluetoothGatt connectingGatt = mConnectingGatts.get(address);
@@ -452,7 +452,7 @@ public class BleBus {
                 }
 
             } else {
-                
+
                 mConnectedGatts.remove(address);
                 gatt.close();
                 log.info("设备[" + deviceInfo + "]断开连接");
