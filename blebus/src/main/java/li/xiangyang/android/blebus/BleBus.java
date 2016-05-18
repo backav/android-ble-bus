@@ -273,7 +273,7 @@ public class BleBus {
                 needCloseBleWhenStop = true;
                 return true;
             } else {
-                log.error("蓝牙启动失败");
+                log.error("蓝牙启动失败,将等待蓝牙开启后,再重新连接");
                 waitBluetoothOpen();
                 return false;
             }
