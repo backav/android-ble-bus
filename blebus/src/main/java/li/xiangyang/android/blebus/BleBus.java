@@ -9,7 +9,10 @@ import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Handler;
 
 
@@ -271,12 +274,23 @@ public class BleBus {
                 return true;
             } else {
                 log.error("蓝牙启动失败");
+                waitBluetoothOpen();
                 return false;
             }
         } else {
             log.info("不支持蓝牙");
             return false;
         }
+    }
+
+    private void waitBluetoothOpen() {
+        try {
+            mContext.unregisterReceiver(mBluetoothStateReceiver);
+        } catch (IllegalArgumentException e) {
+            log.debug("BluetoothStateReceiver还没有监听,忽略");
+        }
+        IntentFilter filter = new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED);
+        mContext.registerReceiver(mBluetoothStateReceiver, filter);
     }
 
     private void startConnect() {
@@ -774,6 +788,7 @@ public class BleBus {
         return null;
     }
 
+
     private boolean matchService(BleService service, BluetoothGatt gatt,
                                  BluetoothGattCharacteristic characteristic) {
         return service.getCharacteristicUUID().equals(characteristic.getUuid())
@@ -782,6 +797,9 @@ public class BleBus {
     }
 
 
+    /**
+     * 默认的监听器,用于将所有的回调从主线程发送给用户指定的监听器
+     */
     private IBusListener mListener = new IBusListener() {
         @Override
         public void deviceConnected(final String address) {
@@ -853,7 +871,27 @@ public class BleBus {
                 }
             });
         }
+    };
 
+    private final BroadcastReceiver mBluetoothStateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            final String action = intent.getAction();
+
+            if (action.equals(BluetoothAdapter.ACTION_STATE_CHANGED)) {
+                final int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE,
+                        BluetoothAdapter.ERROR);
+                switch (state) {
+                    case BluetoothAdapter.STATE_OFF:
+                        waitBluetoothOpen();
+                        break;
+                    case BluetoothAdapter.STATE_ON:
+                        mContext.unregisterReceiver(this);
+                        startConnect();
+                        break;
+                }
+            }
+        }
     };
 
 }
