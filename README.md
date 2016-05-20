@@ -2,4 +2,4 @@
 
 ## 使用方法
 ### Gradle
-> compile 'li.xiangyang.android:blebus:0.4.2'
+> compile 'li.xiangyang.android:blebus:0.4.3'
