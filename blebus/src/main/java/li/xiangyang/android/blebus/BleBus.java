@@ -275,6 +275,7 @@ public class BleBus {
             } else {
                 log.error("蓝牙启动失败,将等待蓝牙开启后,再重新连接");
                 waitBluetoothOpen();
+                mListener.openBluetoothFailed();
                 return false;
             }
         } else {
@@ -284,6 +285,7 @@ public class BleBus {
     }
 
     private void waitBluetoothOpen() {
+        // 防止重复监听
         try {
             mContext.unregisterReceiver(mBluetoothStateReceiver);
         } catch (IllegalArgumentException e) {
@@ -817,6 +819,16 @@ public class BleBus {
                 @Override
                 public void run() {
                     mCustomListener.deviceDisconnected(address);
+                }
+            });
+        }
+
+        @Override
+        public void openBluetoothFailed() {
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    mCustomListener.openBluetoothFailed();
                 }
             });
         }

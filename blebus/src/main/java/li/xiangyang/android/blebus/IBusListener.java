@@ -17,6 +17,7 @@ public interface IBusListener {
      */
     void deviceDisconnected(String address);
 
+    void openBluetoothFailed();
 
     /**
      * 读取设备RSSI的结果
