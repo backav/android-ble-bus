@@ -246,6 +246,12 @@ public class BleBus {
 
         }
         if (mServices.size() == 0) {
+
+            try {
+                mContext.unregisterReceiver(mBluetoothStateReceiver);
+            } catch (Exception ex){
+            }
+
             log.warn("所有服务都被关闭了");
         }
         // 如果没有要监听的服务了,则停止搜索
