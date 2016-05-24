@@ -2,4 +2,10 @@
 
 ## 使用方法
 ### Gradle
-> compile 'li.xiangyang.android:blebus:0.4.3'
+>repositories {
+>  jcenter()
+>}
+
+>dependencies {
+>  compile 'li.xiangyang.android:blebus:0.4.4'
+>}
