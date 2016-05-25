@@ -249,7 +249,7 @@ public class BleBus {
 
             try {
                 mContext.unregisterReceiver(mBluetoothStateReceiver);
-            } catch (Exception ex){
+            } catch (Exception ex) {
             }
 
             log.warn("所有服务都被关闭了");
@@ -273,17 +273,27 @@ public class BleBus {
             if (mBluetoothAdapter.isEnabled()) {
                 return true;
             }
-            log.debug("蓝牙没开启,启动蓝牙..");
-            if (mBluetoothAdapter.enable()) {
-                log.debug("蓝牙启动成功");
-                needCloseBleWhenStop = true;
-                return true;
-            } else {
-                log.error("蓝牙启动失败,将等待蓝牙开启后,再重新连接");
-                waitBluetoothOpen();
-                mListener.openBluetoothFailed();
-                return false;
-            }
+
+            waitBluetoothOpen();
+            // 通知自动打开蓝牙失败了
+            mListener.openBluetoothFailed();
+            // 请求打开蓝牙
+            mContext.startActivity(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE));
+
+            return false;
+
+            // 老版本直接开启蓝牙,在Android6.0上可能会出错
+//            log.debug("蓝牙没开启,启动蓝牙..");
+//            if (mBluetoothAdapter.enable()) {
+//                log.debug("蓝牙启动成功");
+//                needCloseBleWhenStop = true;
+//                return true;
+//            } else {
+//                log.error("蓝牙启动失败,将等待蓝牙开启后,再重新连接");
+//                waitBluetoothOpen();
+//                mListener.openBluetoothFailed();
+//                return false;
+//            }
         } else {
             log.info("不支持蓝牙");
             return false;
@@ -475,7 +485,12 @@ public class BleBus {
 
             } else {
 
-                mConnectedGatts.remove(address);
+                // 防止多次通知
+                if (mConnectedGatts.containsKey(address)) {
+                    mConnectedGatts.remove(address);
+                    mListener.deviceDisconnected(address);
+                }
+
                 gatt.close();
                 log.info("设备[" + deviceInfo + "]断开连接");
 
@@ -488,7 +503,6 @@ public class BleBus {
                     }
                 }
 
-                mListener.deviceDisconnected(address);
                 startConnect();
             }
         }

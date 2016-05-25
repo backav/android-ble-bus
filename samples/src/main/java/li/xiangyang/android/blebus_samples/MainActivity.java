@@ -82,6 +82,9 @@ public class MainActivity extends Activity implements CommonListAdapter.ViewForm
     }
 
     private void startScan() {
+        mDeviceRssi.clear();
+        mDevices.clear();
+        mAdapter.notifyDataSetChanged();
 
         if (mBluetoothAdapter.isEnabled()) {
             mBluetoothAdapter.stopLeScan(callback);
