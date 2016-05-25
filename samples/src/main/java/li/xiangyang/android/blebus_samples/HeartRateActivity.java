@@ -1,6 +1,7 @@
 package li.xiangyang.android.blebus_samples;
 
 import android.app.Activity;
+import android.bluetooth.BluetoothAdapter;
 import android.content.Intent;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -48,6 +49,7 @@ public class HeartRateActivity extends Activity {
             @Override
             public void openBluetoothFailed() {
                 toast("请打开蓝牙");
+                startActivity(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE));
             }
 
             @Override

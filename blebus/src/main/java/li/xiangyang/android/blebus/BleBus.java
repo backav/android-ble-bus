@@ -277,8 +277,6 @@ public class BleBus {
             waitBluetoothOpen();
             // 通知自动打开蓝牙失败了
             mListener.openBluetoothFailed();
-            // 请求打开蓝牙
-            mContext.startActivity(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE));
 
             return false;
 
