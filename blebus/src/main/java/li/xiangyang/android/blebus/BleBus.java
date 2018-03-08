@@ -274,24 +274,13 @@ public class BleBus {
                 return true;
             }
 
+            //监听蓝牙开关状态,等待蓝牙开启
             waitBluetoothOpen();
+
             // 通知自动打开蓝牙失败了
             mListener.openBluetoothFailed();
 
             return false;
-
-            // 老版本直接开启蓝牙,在Android6.0上可能会出错
-//            log.debug("蓝牙没开启,启动蓝牙..");
-//            if (mBluetoothAdapter.enable()) {
-//                log.debug("蓝牙启动成功");
-//                needCloseBleWhenStop = true;
-//                return true;
-//            } else {
-//                log.error("蓝牙启动失败,将等待蓝牙开启后,再重新连接");
-//                waitBluetoothOpen();
-//                mListener.openBluetoothFailed();
-//                return false;
-//            }
         } else {
             log.info("不支持蓝牙");
             return false;
@@ -333,12 +322,13 @@ public class BleBus {
             log.info(devices2connect.size() + "个设备尚未连接,准备连接:" + devices2connect.toString());
             connecting = true;
 
-            log.debug("启动搜索");
-            mBluetoothAdapter.startLeScan(leScanCallback);
+
             for (String address : devices2connect) {
                 connectGatt(address);
             }
 
+            log.debug("启动搜索");
+            mBluetoothAdapter.startLeScan(leScanCallback);
             mHandler.postDelayed(new Runnable() {
                 @Override
                 public void run() {
@@ -362,14 +352,14 @@ public class BleBus {
      */
     private void connectGatt(final BluetoothDevice device) {
         final String deviceInfo = device.getName() + ":" + device.getAddress();
-        log.debug("连接设备:" + deviceInfo);
-
         synchronized (mConnectingGatts) {
             //如果存在连接中的gatt,关闭之
             BluetoothGatt gatt = mConnectingGatts.get(device.getAddress());
             if (gatt != null) {
-                gatt.disconnect();
+                log.debug("停止之前的连接尝试,开始连接设备:" + deviceInfo);
                 gatt.close();
+            } else {
+                log.debug("连接设备:" + deviceInfo);
             }
             mConnectingGatts.put(device.getAddress(), device.connectGatt(mContext, false, mGattCallback));
         }
@@ -383,7 +373,7 @@ public class BleBus {
     private void connectGatt(final String deviceAddress) {
         final BluetoothDevice device = mBluetoothAdapter.getRemoteDevice(deviceAddress);
         final String deviceInfo = device.getName() + ":" + device.getAddress();
-        log.debug("直接连接设备:" + deviceInfo);
+        log.debug("准备尝试直接连接设备:" + deviceInfo);
 
         connectGatt(device);
     }
@@ -397,12 +387,6 @@ public class BleBus {
                              byte[] scanRecord) {
             final String deviceInfo = device.getName() + "["
                     + device.getAddress() + "]:" + rssi;
-
-            // TODO 测试时忽略小米手环
-            if (("MI").equals(device.getName())) {
-//                log.debug( "忽略小米手环");
-                return;
-            }
 
             log.debug("发现设备: " + deviceInfo);
 
@@ -447,7 +431,6 @@ public class BleBus {
                     if (connectingGatt != null) {
                         if (connectingGatt != gatt) {
                             log.error("当前已连接的gatt与连接中的gatt不是同一个,将关闭连接中的gatt");
-                            connectingGatt.disconnect();
                             connectingGatt.close();
                         }
                         mConnectingGatts.remove(address);
@@ -458,7 +441,6 @@ public class BleBus {
                     if (mConnectedGatts.containsKey(address)) {
                         log.error("设备[" + deviceInfo + "]已经连接了");
                         if (gatt != mConnectedGatts.get(address)) {
-                            gatt.disconnect();
                             gatt.close();
                         }
                         return;
