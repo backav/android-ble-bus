@@ -22,20 +22,18 @@ dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
 }
 
-
 // Bintray upload
 
 apply plugin: 'com.jfrog.bintray'
 apply plugin: 'com.github.dcendents.android-maven'
 
 group = "li.xiangyang.android"
-version = "0.4.6"
+version = "0.5.0"
 
 def siteUrl = 'https://github.com/backav/android-ble-bus'    // project homepage
 def gitUrl = 'https://github.com/backav/android-ble-bus.git' // project git
 def pkgName = 'android-blebus'
 def pkgDesc = 'Bluetooth LE Tools for Android'
-
 
 // 根节点添加
 install {
