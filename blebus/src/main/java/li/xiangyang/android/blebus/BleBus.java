@@ -324,6 +324,7 @@ public class BleBus {
 
 
             for (String address : devices2connect) {
+                mListener.deviceConnecting(address);
                 connectGatt(address);
             }
 
@@ -395,9 +396,9 @@ public class BleBus {
                 return;
             }
 
-             /*
+            /*
              * 如果当前发现的设备是我需要的设备且没有被连接,则连接它
-			 */
+             */
             boolean needIt = false;
             synchronized (mServices) {
                 for (BleService s : mServices) {
@@ -803,6 +804,26 @@ public class BleBus {
      * 默认的监听器,用于将所有的回调从主线程发送给用户指定的监听器
      */
     private IBusListener mListener = new IBusListener() {
+        @Override
+        public void deviceConnecting(final String address) {
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    mCustomListener.deviceConnecting(address);
+                }
+            });
+        }
+
+        @Override
+        public void deviceConnectFail(final String address) {
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    mCustomListener.deviceConnectFail(address);
+                }
+            });
+        }
+
         @Override
         public void deviceConnected(final String address) {
             mHandler.post(new Runnable() {

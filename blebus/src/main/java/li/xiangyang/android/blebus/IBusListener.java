@@ -5,22 +5,30 @@ import java.util.UUID;
 
 public interface IBusListener {
 
+    void deviceConnecting(String address);
+
+    void deviceConnectFail(String address);
+
     /**
      * 设备连接成功
+     *
      * @param address
      */
     void deviceConnected(String address);
 
     /**
      * 设备断开连接
+     *
      * @param address
      */
     void deviceDisconnected(String address);
+
 
     void openBluetoothFailed();
 
     /**
      * 读取设备RSSI的结果
+     *
      * @param address
      * @param success
      * @param rssi
@@ -29,6 +37,7 @@ public interface IBusListener {
 
     /**
      * 监听操作的结果
+     *
      * @param service
      * @param characteristic
      * @param success
@@ -42,6 +51,7 @@ public interface IBusListener {
 
     /**
      * 读取操作的结果
+     *
      * @param service
      * @param characteristic
      * @param success
@@ -51,6 +61,7 @@ public interface IBusListener {
     /**
      * 收到数据
      * 来自于read或者listen
+     *
      * @param service
      * @param characteristic
      */
