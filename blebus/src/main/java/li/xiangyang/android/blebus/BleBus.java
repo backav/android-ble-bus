@@ -673,12 +673,25 @@ public class BleBus {
         // write
         else if (operateType == BleService.OperateType.Write
                 || operateType == BleService.OperateType.WriteWithoutResponse) {
-            operateSuccess = writeCharacteristic(
-                    myService,
-                    gatt,
-                    characteristic,
-                    myService.getWritingData(),
-                    operateType == BleService.OperateType.Write);
+
+            // 如果要写入的数据超过20字节,则分多次写入
+            byte[] dataToWrite = myService.getWritingData();
+            for (int packetStart = 0; packetStart < dataToWrite.length; packetStart += 20) {
+
+                int packetEnd = packetStart + 20 < dataToWrite.length ? dataToWrite.length % 20 : 20;
+
+                byte[] packet = Arrays.copyOfRange(dataToWrite, packetStart, packetEnd);
+                operateSuccess = writeCharacteristic(
+                        myService,
+                        gatt,
+                        characteristic,
+                        packet,
+                        operateType == BleService.OperateType.Write);
+                // 如果其中一个包发送失败,则不再发送余下数据
+                if (!operateSuccess) {
+                    break;
+                }
+            }
         } else {
             log.error("无效的 operateType" + operateType + " 来自" + myService);
         }
