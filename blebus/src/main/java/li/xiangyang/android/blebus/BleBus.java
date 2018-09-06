@@ -687,6 +687,8 @@ public class BleBus {
 
                 int packetEnd = (packetStart + 20) > dataToWrite.length ? dataToWrite.length : packetStart + 20;
 
+                writeLock.lock();
+
                 byte[] packet = Arrays.copyOfRange(dataToWrite, packetStart, packetEnd);
                 operateSuccess = writeCharacteristic(
                         myService,
@@ -699,6 +701,7 @@ public class BleBus {
                     writeCondition.wait(200);
                 } catch (InterruptedException ignored) {
                 }
+                writeLock.unlock();
 
                 // 如果其中一个包发送失败,则不再发送余下数据
                 if (!operateSuccess) {
