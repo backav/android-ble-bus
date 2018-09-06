@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -698,7 +699,7 @@ public class BleBus {
                         operateType == BleService.OperateType.Write);
 
                 try {
-                    writeCondition.wait(200);
+                    writeCondition.await(200, TimeUnit.MILLISECONDS);
                 } catch (InterruptedException ignored) {
                 }
                 writeLock.unlock();
