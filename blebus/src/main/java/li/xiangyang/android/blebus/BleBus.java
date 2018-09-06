@@ -678,7 +678,7 @@ public class BleBus {
             byte[] dataToWrite = myService.getWritingData();
             for (int packetStart = 0; packetStart < dataToWrite.length; packetStart += 20) {
 
-                int packetEnd = (packetStart + 20) < dataToWrite.length ? dataToWrite.length : packetStart + 20;
+                int packetEnd = (packetStart + 20) > dataToWrite.length ? dataToWrite.length : packetStart + 20;
 
                 byte[] packet = Arrays.copyOfRange(dataToWrite, packetStart, packetEnd);
                 operateSuccess = writeCharacteristic(
