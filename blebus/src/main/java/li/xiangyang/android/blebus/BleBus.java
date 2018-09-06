@@ -25,6 +25,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 @SuppressLint("NewApi")
 public class BleBus {
@@ -33,6 +36,9 @@ public class BleBus {
 
     private Context mContext;
     private Handler mHandler;
+    private IBusListener mCustomListener;
+    private ILogger log;
+
     private BluetoothAdapter mBluetoothAdapter;
     private boolean needCloseBleWhenStop = false;
     private boolean connecting = false;
@@ -44,9 +50,8 @@ public class BleBus {
     // 保存连接成功的gatt
     private Map<String, BluetoothGatt> mConnectedGatts = new HashMap<String, BluetoothGatt>();// <Address,Gatt>
 
-    private IBusListener mCustomListener;
-
-    private ILogger log;
+    private Lock writeLock = new ReentrantLock();
+    private Condition writeCondition = writeLock.newCondition();
 
     /**
      * 初始化bus
@@ -548,6 +553,8 @@ public class BleBus {
                                           final BluetoothGattCharacteristic characteristic,
                                           final int status) {
 
+            writeCondition.signal();
+
             List<BleService> matches = new ArrayList<>(mServices.size());
 
             synchronized (mServices) {
@@ -687,6 +694,12 @@ public class BleBus {
                         characteristic,
                         packet,
                         operateType == BleService.OperateType.Write);
+
+                try {
+                    writeCondition.wait(200);
+                } catch (InterruptedException ignored) {
+                }
+
                 // 如果其中一个包发送失败,则不再发送余下数据
                 if (!operateSuccess) {
                     break;
