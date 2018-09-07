@@ -555,8 +555,11 @@ public class BleBus {
                                           final int status) {
 
             writeLock.lock();
-            writeCondition.signal();
-            writeLock.unlock();
+            try{
+                writeCondition.signal();
+            }finally {
+                writeLock.unlock();
+            }
 
             List<BleService> matches = new ArrayList<>(mServices.size());
 
@@ -684,32 +687,36 @@ public class BleBus {
         else if (operateType == BleService.OperateType.Write
                 || operateType == BleService.OperateType.WriteWithoutResponse) {
 
-            // 如果要写入的数据超过20字节,则分多次写入
-            byte[] dataToWrite = myService.getWritingData();
-            for (int packetStart = 0; packetStart < dataToWrite.length; packetStart += 20) {
 
-                int packetEnd = (packetStart + 20) > dataToWrite.length ? dataToWrite.length : packetStart + 20;
+            writeLock.lock();
+            try {
+                // 如果要写入的数据超过20字节,则分多次写入
+                byte[] dataToWrite = myService.getWritingData();
+                for (int packetStart = 0; packetStart < dataToWrite.length; packetStart += 20) {
 
-                writeLock.lock();
+                    int packetEnd = (packetStart + 20) > dataToWrite.length ? dataToWrite.length : packetStart + 20;
 
-                byte[] packet = Arrays.copyOfRange(dataToWrite, packetStart, packetEnd);
-                operateSuccess = writeCharacteristic(
-                        myService,
-                        gatt,
-                        characteristic,
-                        packet,
-                        operateType == BleService.OperateType.Write);
+                    byte[] packet = Arrays.copyOfRange(dataToWrite, packetStart, packetEnd);
+                    operateSuccess = writeCharacteristic(
+                            myService,
+                            gatt,
+                            characteristic,
+                            packet,
+                            operateType == BleService.OperateType.Write);
 
-                try {
-                    writeCondition.await(200, TimeUnit.MILLISECONDS);
-                } catch (InterruptedException ignored) {
+                    try {
+                        writeCondition.await(200, TimeUnit.MILLISECONDS);
+                    } catch (InterruptedException ignored) {
+                    }
+
+                    // 如果其中一个包发送失败,则不再发送余下数据
+                    if (!operateSuccess) {
+                        break;
+                    }
+
                 }
+            } finally {
                 writeLock.unlock();
-
-                // 如果其中一个包发送失败,则不再发送余下数据
-                if (!operateSuccess) {
-                    break;
-                }
             }
         } else {
             log.error("无效的 operateType" + operateType + " 来自" + myService);
