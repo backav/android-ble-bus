@@ -554,7 +554,9 @@ public class BleBus {
                                           final BluetoothGattCharacteristic characteristic,
                                           final int status) {
 
+            writeLock.lock();
             writeCondition.signal();
+            writeLock.unlock();
 
             List<BleService> matches = new ArrayList<>(mServices.size());
 
