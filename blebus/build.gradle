@@ -28,7 +28,7 @@ apply plugin: 'com.jfrog.bintray'
 apply plugin: 'com.github.dcendents.android-maven'
 
 group = "li.xiangyang.android"
-version = "0.5.8"
+version = "0.5.9"
 
 def siteUrl = 'https://github.com/backav/android-ble-bus'    // project homepage
 def gitUrl = 'https://github.com/backav/android-ble-bus.git' // project git
@@ -53,8 +53,8 @@ install {
                 developers {
                     developer {
                         id 'backav'
-                        name 'xiangyang li'
-                        email 'wo@xiangyang.li'
+                        name 'sh4wn'
+                        email 'shawn@xiangyang.li'
                     }
                 }
                 scm {
