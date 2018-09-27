@@ -104,7 +104,7 @@ public class BleBus {
         return this.scheduleOperation(new BleOperation(mac, service, characteristic, data, false));
     }
 
-    public void stop(String... devices) {
+    public void close(String... devices) {
 
         Set<String> sets;
         if (devices == null || devices.length == 0) {
