@@ -15,7 +15,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Handler;
 
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -35,6 +34,13 @@ public class BleBus {
 
     private static final int SCAN_PERIOD = 5;// 搜索限制时间/重新连接时间 单位:秒
 
+    private final List<BleOperation> mServices = new ArrayList<BleOperation>();
+    private final Map<String, BluetoothGatt> mConnectingGatts = new HashMap<>();// <Address,Gatt>
+    private final Map<String, BluetoothGatt> mConnectedGatts = new HashMap<String, BluetoothGatt>();// <Address,Gatt>
+
+    private Lock writeLock = new ReentrantLock();
+    private Condition writeCondition = writeLock.newCondition();
+
     private Context mContext;
     private Handler mHandler;
     private IListener mListener;
@@ -42,16 +48,6 @@ public class BleBus {
 
     private BluetoothAdapter mBluetoothAdapter;
     private boolean connecting = false;
-
-    //保存需要处理的BleOperation
-    private final List<BleOperation> mServices = new ArrayList<BleOperation>();
-    // 保存正在尝试连接的gatt
-    private final Map<String, BluetoothGatt> mConnectingGatts = new HashMap<>();// <Address,Gatt>
-    // 保存连接成功的gatt
-    private final Map<String, BluetoothGatt> mConnectedGatts = new HashMap<String, BluetoothGatt>();// <Address,Gatt>
-
-    private Lock writeLock = new ReentrantLock();
-    private Condition writeCondition = writeLock.newCondition();
 
     public BleBus(Context cxt, IListener listener) {
         this(cxt, listener, new LogcatLogger());
@@ -162,7 +158,6 @@ public class BleBus {
         }
     }
 
-
     private boolean scheduleOperation(BleOperation service) {
 
         boolean operateSuccess = true;
@@ -192,41 +187,7 @@ public class BleBus {
         return operateSuccess;
     }
 
-    private boolean startBluetooth() {
-        if (mBluetoothAdapter == null) {
-            final BluetoothManager bluetoothManager = (BluetoothManager) mContext.getSystemService(Context.BLUETOOTH_SERVICE);
-            mBluetoothAdapter = bluetoothManager.getAdapter();
-        }
-        if (mBluetoothAdapter != null) {
-            if (mBluetoothAdapter.isEnabled()) {
-                return true;
-            }
-
-            //监听蓝牙开关状态,等待蓝牙开启
-            waitBluetoothOpen();
-
-            mListener.bluetoothClosed();
-
-            return false;
-        } else {
-            log.info("不支持蓝牙");
-            return false;
-        }
-    }
-
-    private void waitBluetoothOpen() {
-        // 防止重复监听
-        try {
-            mContext.unregisterReceiver(mBluetoothStateReceiver);
-        } catch (IllegalArgumentException e) {
-            log.debug("BluetoothStateReceiver还没有监听,忽略");
-        }
-        IntentFilter filter = new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED);
-        mContext.registerReceiver(mBluetoothStateReceiver, filter);
-    }
-
     private void startConnect() {
-
 
         if (connecting || mServices.size() == 0) {
             return;
@@ -366,22 +327,30 @@ public class BleBus {
                     mConnectedGatts.put(address, gatt);
                 }
 
-
                 log.debug("设备[" + deviceInfo + "]连接成功");
-
 
                 mListener.deviceConnected(address);
 
-                if (gatt.getServices().size() > 0) {
-                    deviceServiceDiscovered(gatt);
-                } else {
-                    log.debug("查找设备[" + deviceInfo + "]支持的服务..");
-                    if (!gatt.discoverServices()) {
-                        log.error("在设备[" + deviceInfo + "]上查找服务失败了");
-                    }
+                log.debug("查找设备[" + deviceInfo + "]支持的服务..");
+                if (!gatt.discoverServices()) {
+                    log.error("在设备[" + deviceInfo + "]上查找服务失败了");
                 }
 
             } else {
+
+                synchronized (mServices) {
+                    for (final Iterator<BleOperation> iterator = mServices.iterator(); iterator.hasNext(); ) {
+                        final BleOperation myService = iterator.next();
+                        if (myService.getDeviceAddress().equals(gatt.getDevice().getAddress())) {
+                            iterator.remove();
+                        }
+                    }
+                }
+
+                if (mConnectingGatts.containsKey(address)) {
+                    mConnectingGatts.get(address).close();
+                    mConnectingGatts.remove(address);
+                }
 
                 // 防止多次通知
                 if (mConnectedGatts.containsKey(address)) {
@@ -405,7 +374,37 @@ public class BleBus {
                 log.error("在设备[" + deviceInfo + "]上扫描服务失败了:status = " + status);
                 return;
             }
-            deviceServiceDiscovered(gatt);
+
+            List<BluetoothGattService> ss = gatt.getServices();
+            if (ss == null || ss.size() <= 0) {
+                return;
+            }
+            log.debug("在设备[" + deviceInfo + "]上发现 " + ss.size() + " 个服务");
+
+            synchronized (mServices) {
+                for (final Iterator<BleOperation> iterator = mServices.iterator(); iterator.hasNext(); ) {
+                    final BleOperation myService = iterator.next();
+
+                    if (myService.getDeviceAddress().equals(gatt.getDevice().getAddress())) {
+
+                        BluetoothGattService deviceService = gatt.getService(myService.getServiceUUID());
+                        if (deviceService != null) {
+                            final BluetoothGattCharacteristic characteristic = deviceService.getCharacteristic(myService.getCharacteristicUUID());
+                            if (characteristic != null) {
+                                processOperation(myService, gatt, characteristic);
+                            } else {
+                                log.error("在设备[" + deviceInfo + "]上找不到此属性:" + myService.getCharacteristicUUID());
+                            }
+                        } else {
+                            log.error("在设备[" + deviceInfo + "]上找不到此服务:" + myService.getServiceUUID());
+                        }
+
+                        iterator.remove();
+                    }
+
+
+                }
+            }
         }
 
         public void onCharacteristicChanged(BluetoothGatt gatt,
@@ -457,40 +456,6 @@ public class BleBus {
 
     };
 
-    private void deviceServiceDiscovered(final BluetoothGatt gatt) {
-
-        final String deviceInfo = gatt.getDevice().getName() + ":" + gatt.getDevice().getAddress();
-        List<BluetoothGattService> ss = gatt.getServices();
-        if (ss == null || ss.size() <= 0) {
-            return;
-        }
-        log.debug("在设备[" + deviceInfo + "]上发现 " + ss.size() + " 个服务");
-
-        synchronized (mServices) {
-            for (final Iterator<BleOperation> iterator = mServices.iterator(); iterator.hasNext(); ) {
-                final BleOperation myService = iterator.next();
-
-                if (myService.getDeviceAddress().equals(gatt.getDevice().getAddress())) {
-
-                    BluetoothGattService deviceService = gatt.getService(myService.getServiceUUID());
-                    if (deviceService != null) {
-                        final BluetoothGattCharacteristic characteristic = deviceService.getCharacteristic(myService.getCharacteristicUUID());
-                        if (characteristic != null) {
-                            processOperation(myService, gatt, characteristic);
-                        } else {
-                            log.error("在设备[" + deviceInfo + "]上找不到此属性:" + myService.getCharacteristicUUID());
-                        }
-                    } else {
-                        log.error("在设备[" + deviceInfo + "]上找不到此服务:" + myService.getServiceUUID());
-                    }
-
-                    iterator.remove();
-                }
-
-
-            }
-        }
-    }
 
     private boolean processOperation(BleOperation myService, BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
         log.debug("开始:" + myService);
@@ -619,6 +584,39 @@ public class BleBus {
             mListener.operationEnableResult(service.deviceAddress, service.serviceUUID, characteristic.getUuid(), false);
         }
         return success;
+    }
+
+    private boolean startBluetooth() {
+        if (mBluetoothAdapter == null) {
+            final BluetoothManager bluetoothManager = (BluetoothManager) mContext.getSystemService(Context.BLUETOOTH_SERVICE);
+            mBluetoothAdapter = bluetoothManager.getAdapter();
+        }
+
+        if (mBluetoothAdapter != null) {
+            if (mBluetoothAdapter.isEnabled()) {
+                return true;
+            }
+
+            //监听蓝牙开关状态,等待蓝牙开启
+            waitBluetoothOpen();
+
+            mListener.bluetoothClosed();
+
+            return false;
+        } else {
+            log.info("不支持蓝牙");
+            return false;
+        }
+    }
+
+    private void waitBluetoothOpen() {
+        // 防止重复监听
+        try {
+            mContext.unregisterReceiver(mBluetoothStateReceiver);
+        } catch (IllegalArgumentException ignored) {
+        }
+        IntentFilter filter = new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED);
+        mContext.registerReceiver(mBluetoothStateReceiver, filter);
     }
 
     private final BroadcastReceiver mBluetoothStateReceiver = new BroadcastReceiver() {
