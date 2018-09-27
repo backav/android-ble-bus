@@ -33,67 +33,41 @@ import java.util.concurrent.locks.ReentrantLock;
 @SuppressLint("NewApi")
 public class BleBus {
 
-    private final int SCAN_PERIOD = 5;// 搜索限制时间/重新连接时间 单位:秒
+    private static final int SCAN_PERIOD = 5;// 搜索限制时间/重新连接时间 单位:秒
 
     private Context mContext;
     private Handler mHandler;
-    private IBusListener mCustomListener;
+    private IListener mListener;
     private ILogger log;
 
     private BluetoothAdapter mBluetoothAdapter;
-    private boolean needCloseBleWhenStop = false;
     private boolean connecting = false;
 
-    //保存需要处理的BleService
-    private List<BleService> mServices = new ArrayList<BleService>();
+    //保存需要处理的BleOperation
+    private final List<BleOperation> mServices = new ArrayList<BleOperation>();
     // 保存正在尝试连接的gatt
-    private Map<String, BluetoothGatt> mConnectingGatts = new HashMap<>();// <Address,Gatt>
+    private final Map<String, BluetoothGatt> mConnectingGatts = new HashMap<>();// <Address,Gatt>
     // 保存连接成功的gatt
-    private Map<String, BluetoothGatt> mConnectedGatts = new HashMap<String, BluetoothGatt>();// <Address,Gatt>
+    private final Map<String, BluetoothGatt> mConnectedGatts = new HashMap<String, BluetoothGatt>();// <Address,Gatt>
 
     private Lock writeLock = new ReentrantLock();
     private Condition writeCondition = writeLock.newCondition();
 
-    /**
-     * 初始化bus
-     *
-     * @param cxt
-     * @param listener
-     */
-    public BleBus(Context cxt, IBusListener listener) {
-        this(cxt, listener, new ILogger() {
-            @Override
-            public void error(Object msg) {
-            }
-
-            @Override
-            public void debug(Object msg) {
-            }
-
-            @Override
-            public void info(Object msg) {
-            }
-
-            @Override
-            public void warn(Object msg) {
-            }
-        });
+    public BleBus(Context cxt, IListener listener) {
+        this(cxt, listener, new LogcatLogger());
     }
 
-    public BleBus(Context cxt, IBusListener listener, ILogger logger) {
+    public BleBus(Context cxt, IListener listener, ILogger logger) {
         mContext = cxt;
-        mCustomListener = listener;
         mHandler = new Handler();
+        mListener = new HandledBusListenner(mHandler, listener);
         this.log = logger;
     }
 
-    /**
-     * 读取设备的rssi
-     * 只有设备连接成功后,才会有Rssi结果
-     *
-     * @param device
-     * @return
-     */
+    public boolean isDeviceConnected(String device) {
+        return mConnectingGatts.containsKey(device);
+    }
+
     public boolean readRssi(String device) {
         BluetoothGatt gatt = mConnectedGatts.get(device);
         if (gatt != null) {
@@ -102,109 +76,35 @@ public class BleBus {
         return false;
     }
 
-    /**
-     * 监听服务
-     *
-     * @param service
-     */
-    public boolean listen(BleService service) {
-
-        if (mServices.contains(service)) {
-            log.error("重复的操作 " + service);
-            return false;
-        }
-        return processService(service);
+    public boolean enableIndicate(String mac, UUID service, UUID characteristic) {
+        return this.scheduleOperation(new BleOperation(mac, service, characteristic, BleOperation.Type.Indicate));
     }
 
-    public void unlisten(final BleService serviceMaybeNew) {
-
-        final BleService service = getExistsService(serviceMaybeNew);
-        if (service != null) {
-            if (service.getOperateType() == BleService.OperateType.Notify || service.getOperateType() == BleService.OperateType.Indicate) {
-                boolean operateSuccess = true;
-                if (service.isOperating()) {
-                    final BluetoothGatt gatt = mConnectedGatts.get(service.getDeviceAddress());
-                    if (gatt != null) {
-                        BluetoothGattService s = gatt.getService(service.getServiceUUID());
-                        if (s != null) {
-                            final BluetoothGattCharacteristic c = s.getCharacteristic(service.getCharacteristicUUID());
-                            if (c != null) {
-                                log.debug("停止 " + service);
-                                operateSuccess = disableNotifyCharacteristic(service, gatt, c);
-                            }
-                        }
-                    }
-                }
-                if (operateSuccess) {
-                    mServices.remove(service);
-                }
-
-            } else {
-                log.error(service + " 不是 notify 或 indicate 类型的");
-            }
-        }
+    public boolean enableNotify(String mac, UUID service, UUID characteristic) {
+        return this.scheduleOperation(new BleOperation(mac, service, characteristic, BleOperation.Type.Notify));
     }
 
-    /**
-     * 读取设备的数据
-     *
-     * @return
-     */
-    public boolean read(final BleService service) {
-        return processService(service);
+    public void disableIndicate(String mac, UUID service, UUID characteristic) {
+        this.scheduleOperation(new BleOperation(mac, service, characteristic, BleOperation.Type.DisableIndicate));
     }
 
-    /**
-     * 写数据到设备
-     *
-     * @param service
-     */
-    public boolean write(final BleService service) {
-        return processService(service);
+    public void disableNotify(String mac, UUID service, UUID characteristic) {
+        this.scheduleOperation(new BleOperation(mac, service, characteristic, BleOperation.Type.DisableNotify));
     }
 
-    private boolean processService(BleService service) {
-
-        synchronized (mServices) {
-            mServices.add(service);
-
-            boolean operateSuccess = true;
-            final BluetoothGatt gatt = mConnectedGatts.get(service.getDeviceAddress());
-            if (gatt != null) {
-                BluetoothGattService s = gatt.getService(service.getServiceUUID());
-                if (s != null) {
-                    final BluetoothGattCharacteristic c = s.getCharacteristic(service.getCharacteristicUUID());
-                    if (c != null) {
-                        operateSuccess = processOperation(service, gatt, c);
-                    } else {
-                        log.error("设备[" + service.getDeviceAddress() + "]的服务[" + service.getServiceUUID() + "]没有这个特性[" + service.getCharacteristicUUID() + "]");
-                        operateSuccess = false;
-                    }
-                } else {
-                    final String deviceInfo = gatt.getDevice().getName() + ":" + gatt.getDevice().getAddress();
-                    log.info("准备查找设备[" + deviceInfo + "]上的服务");
-                    if (!(operateSuccess = gatt.discoverServices())) {
-                        log.error("在设备[" + deviceInfo + "]上查找服务失败了");
-                    }
-                }
-            } else {
-                startConnect();
-            }
-
-            if (!operateSuccess) {
-                mServices.remove(service);
-            }
-            return operateSuccess;
-        }
+    public void read(String mac, UUID service, UUID characteristic) {
+        this.scheduleOperation(new BleOperation(mac, service, characteristic, BleOperation.Type.Read));
     }
 
-    /**
-     * 关闭连接
-     *
-     * @param devices 如果devices为空,表示关闭所有连接
-     */
+    public boolean write(String mac, UUID service, UUID characteristic, byte[] data) {
+        return this.scheduleOperation(new BleOperation(mac, service, characteristic, data, true));
+    }
+
+    public boolean writeWithoutResponse(String mac, UUID service, UUID characteristic, byte[] data) {
+        return this.scheduleOperation(new BleOperation(mac, service, characteristic, data, false));
+    }
+
     public void stop(String... devices) {
-
 
         Set<String> sets;
         if (devices == null || devices.length == 0) {
@@ -221,8 +121,8 @@ public class BleBus {
         for (String address : sets) {
 
             synchronized (mServices) {
-                for (Iterator<BleService> iterator = mServices.iterator(); iterator.hasNext(); ) {
-                    BleService bleService = (BleService) iterator.next();
+                for (Iterator<BleOperation> iterator = mServices.iterator(); iterator.hasNext(); ) {
+                    BleOperation bleService = (BleOperation) iterator.next();
                     if (bleService.getDeviceAddress().equals(address)) {
                         iterator.remove();
                     }
@@ -255,21 +155,43 @@ public class BleBus {
 
             try {
                 mContext.unregisterReceiver(mBluetoothStateReceiver);
-            } catch (Exception ex) {
+            } catch (Exception ignored) {
             }
 
             log.warn("所有服务都被关闭了");
         }
-        // 如果没有要监听的服务了,则停止搜索
-        if (mServices.size() == 0 && needCloseBleWhenStop) {
-            log.debug("关闭蓝牙");
-            mBluetoothAdapter.disable();
-        }
     }
 
-    /**
-     * 开始启动蓝牙
-     */
+
+    private boolean scheduleOperation(BleOperation service) {
+
+        boolean operateSuccess = true;
+        final BluetoothGatt gatt = mConnectedGatts.get(service.getDeviceAddress());
+        if (gatt != null) {
+            BluetoothGattService s = gatt.getService(service.getServiceUUID());
+            if (s != null) {
+                final BluetoothGattCharacteristic c = s.getCharacteristic(service.getCharacteristicUUID());
+                if (c != null) {
+                    operateSuccess = processOperation(service, gatt, c);
+                } else {
+                    log.error("设备[" + service.getDeviceAddress() + "]的服务[" + service.getServiceUUID() + "]没有这个特性[" + service.getCharacteristicUUID() + "]");
+                    operateSuccess = false;
+                }
+            } else {
+                final String deviceInfo = gatt.getDevice().getName() + ":" + gatt.getDevice().getAddress();
+                log.info("准备查找设备[" + deviceInfo + "]上的服务");
+                if (!(operateSuccess = gatt.discoverServices())) {
+                    log.error("在设备[" + deviceInfo + "]上查找服务失败了");
+                }
+            }
+        } else {
+            mServices.add(service);
+            startConnect();
+        }
+
+        return operateSuccess;
+    }
+
     private boolean startBluetooth() {
         if (mBluetoothAdapter == null) {
             final BluetoothManager bluetoothManager = (BluetoothManager) mContext.getSystemService(Context.BLUETOOTH_SERVICE);
@@ -283,8 +205,7 @@ public class BleBus {
             //监听蓝牙开关状态,等待蓝牙开启
             waitBluetoothOpen();
 
-            // 通知自动打开蓝牙失败了
-            mListener.openBluetoothFailed();
+            mListener.bluetoothClosed();
 
             return false;
         } else {
@@ -317,7 +238,7 @@ public class BleBus {
 
         Set<String> devices2connect = new HashSet<>(mServices.size());
         synchronized (mServices) {
-            for (BleService bleService : mServices) {
+            for (BleOperation bleService : mServices) {
                 if (!mConnectedGatts.containsKey(bleService.getDeviceAddress())) {
                     devices2connect.add(bleService.getDeviceAddress());
                 }
@@ -352,11 +273,6 @@ public class BleBus {
         }
     }
 
-    /**
-     * 用于搜索到设备
-     *
-     * @param device
-     */
     private void connectGatt(final BluetoothDevice device) {
         final String deviceInfo = device.getName() + ":" + device.getAddress();
         synchronized (mConnectingGatts) {
@@ -372,11 +288,6 @@ public class BleBus {
         }
     }
 
-    /**
-     * 用于直接通过mac地址连接
-     *
-     * @param deviceAddress
-     */
     private void connectGatt(final String deviceAddress) {
         final BluetoothDevice device = mBluetoothAdapter.getRemoteDevice(deviceAddress);
         final String deviceInfo = device.getName() + ":" + device.getAddress();
@@ -407,7 +318,7 @@ public class BleBus {
              */
             boolean needIt = false;
             synchronized (mServices) {
-                for (BleService s : mServices) {
+                for (BleOperation s : mServices) {
                     if (device.getAddress().equals(s.getDeviceAddress())) {
                         needIt = true;
                         break;
@@ -481,15 +392,6 @@ public class BleBus {
                 gatt.close();
                 log.info("设备[" + deviceInfo + "]断开连接");
 
-                synchronized (mServices) {
-                    for (Iterator<BleService> iterator = mServices.iterator(); iterator.hasNext(); ) {
-                        BleService service = iterator.next();
-                        if (service.getDeviceAddress().equals(address)) {
-                            service.resetOperating();
-                        }
-                    }
-                }
-
                 startConnect();
             }
         }
@@ -509,105 +411,42 @@ public class BleBus {
         public void onCharacteristicChanged(BluetoothGatt gatt,
                                             BluetoothGattCharacteristic characteristic) {
 
-            List<BleService> matches = new ArrayList<>(mServices.size());
-            synchronized (mServices) {
-                for (BleService service : mServices) {
-                    if ((service.getOperateType() == BleService.OperateType.Notify || service.getOperateType() == BleService.OperateType.Indicate)
-                            && matchService(service, gatt, characteristic)) {
-                        matches.add(service);
-                    }
-                }
-            }
-            for (BleService service : matches) {
-                mListener.dataReceived(service, characteristic.getUuid(), characteristic.getValue());
-            }
-            if (matches.size() == 0) {
-                log.warn("接收到 notify(indicate)数据(" + characteristic.getUuid() + "),但是没有找到对应的 BleService");
-            }
+            mListener.dataReceived(gatt.getDevice().getAddress(), characteristic.getService().getUuid(), characteristic.getUuid(), characteristic.getValue());
+
         }
 
         public void onCharacteristicRead(BluetoothGatt gatt,
                                          BluetoothGattCharacteristic characteristic, int status) {
 
-            List<BleService> matches = new ArrayList<>(mServices.size());
-            synchronized (mServices) {
-                for (Iterator<BleService> iterator = mServices.iterator(); iterator.hasNext(); ) {
-                    BleService service = iterator.next();
-                    if (service.getOperateType() == BleService.OperateType.Read
-                            && matchService(service, gatt, characteristic)) {
-                        matches.add(service);
-                        iterator.remove();// 接受到数据以后,就删除
-                    }
-                }
-            }
-            for (BleService service : matches) {
-                mListener.dataReceived(service, characteristic.getUuid(), characteristic.getValue());
-            }
-            if (matches.size() == 0) {
-                log.warn("接收到 read数据(" + characteristic.getUuid() + "),但是没有找到对应的 BleService");
-            }
-        }
+            mListener.dataReceived(gatt.getDevice().getAddress(), characteristic.getService().getUuid(), characteristic.getUuid(), characteristic.getValue());
 
-        ;
+        }
 
         public void onCharacteristicWrite(BluetoothGatt gatt,
                                           final BluetoothGattCharacteristic characteristic,
                                           final int status) {
 
             writeLock.lock();
-            try{
+            try {
                 writeCondition.signal();
-            }finally {
+            } finally {
                 writeLock.unlock();
             }
 
-            List<BleService> matches = new ArrayList<>(mServices.size());
-
-            synchronized (mServices) {
-                for (Iterator<BleService> iterator = mServices.iterator(); iterator.hasNext(); ) {
-                    final BleService service = iterator.next();
-                    if ((service.getOperateType() == BleService.OperateType.Write || service.getOperateType() == BleService.OperateType.WriteWithoutResponse)
-                            && matchService(service, gatt, characteristic)) {
-                        matches.add(service);
-                        iterator.remove();
-                    }
-                }
-            }
-            for (BleService service : matches) {
-                mListener.writeOperateResult(service,
-                        characteristic.getUuid(),
-                        status == BluetoothGatt.GATT_SUCCESS);
-            }
-
-            if (matches.size() == 0) {
-                log.warn("接收到 write response (" + characteristic.getUuid() + "),但是没有找到对应的 BleService");
-            }
+            mListener.operationWriteResult(gatt.getDevice().getAddress(), characteristic.getService().getUuid(), characteristic.getUuid(), status == BluetoothGatt.GATT_SUCCESS);
         }
 
         public void onDescriptorWrite(BluetoothGatt gatt,
                                       final BluetoothGattDescriptor descriptor, final int status) {
 
-            final boolean success = status == BluetoothGatt.GATT_SUCCESS;
-
             if (descriptor.getUuid().equals(Constants.UUID_CONFIG)) {
 
-                List<BleService> matches = new ArrayList<>(mServices.size());
-                synchronized (mServices) {
-                    for (Iterator<BleService> iterator = mServices.iterator(); iterator.hasNext(); ) {
-                        final BleService bleService = iterator.next();
-                        if ((bleService.getOperateType() == BleService.OperateType.Notify || bleService.getOperateType() == BleService.OperateType.Indicate)
-                                && matchService(bleService, gatt, descriptor.getCharacteristic())) {
-                            matches.add(bleService);
-                            if (!success) {
-                                iterator.remove();
-                            }
-                        }
-                    }
-                }
+                final boolean success = status == BluetoothGatt.GATT_SUCCESS;
 
-                for (BleService service : matches) {
-                    service.setOperating(success);
-                    mListener.listenOperateResult(service, descriptor.getCharacteristic().getUuid(), success);
+                if (Arrays.equals(descriptor.getValue(), BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)
+                        || Arrays.equals(descriptor.getValue(), BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)) {
+
+                    mListener.operationEnableResult(gatt.getDevice().getAddress(), descriptor.getCharacteristic().getService().getUuid(), descriptor.getCharacteristic().getUuid(), success);
                 }
             }
         }
@@ -622,70 +461,59 @@ public class BleBus {
 
         final String deviceInfo = gatt.getDevice().getName() + ":" + gatt.getDevice().getAddress();
         List<BluetoothGattService> ss = gatt.getServices();
-        log.debug("在设备[" + deviceInfo + "]上发现 " + ss.size() + " 个服务");
-
         if (ss == null || ss.size() <= 0) {
             return;
         }
+        log.debug("在设备[" + deviceInfo + "]上发现 " + ss.size() + " 个服务");
 
         synchronized (mServices) {
-            /**
-             * 遍历所有mListenedServices,如果当前发现的服务中有需要的,则进一步处理
-             */
-            for (final Iterator<BleService> iterator = mServices.iterator(); iterator.hasNext(); ) {
-                final BleService myService = iterator.next();
+            for (final Iterator<BleOperation> iterator = mServices.iterator(); iterator.hasNext(); ) {
+                final BleOperation myService = iterator.next();
 
-                if (myService.isOperating()) {
-                    log.debug("Service[" + myService + "]上的所有操作都在进行中,不在重新执行");
-                    continue;
-                }
+                if (myService.getDeviceAddress().equals(gatt.getDevice().getAddress())) {
 
-                boolean operateSuccess = false;
-                BluetoothGattService deviceService = gatt.getService(myService.getServiceUUID());
-                if (deviceService != null) {
-                    List<BluetoothGattCharacteristic> cs = deviceService.getCharacteristics();
-                    if (cs != null && cs.size() > 0) {
+                    BluetoothGattService deviceService = gatt.getService(myService.getServiceUUID());
+                    if (deviceService != null) {
                         final BluetoothGattCharacteristic characteristic = deviceService.getCharacteristic(myService.getCharacteristicUUID());
                         if (characteristic != null) {
-                            operateSuccess = processOperation(myService, gatt, characteristic);
+                            processOperation(myService, gatt, characteristic);
                         } else {
                             log.error("在设备[" + deviceInfo + "]上找不到此属性:" + myService.getCharacteristicUUID());
                         }
                     } else {
-                        log.error("在设备[" + deviceInfo + "]上找不到此属性:" + myService.getCharacteristicUUID());
+                        log.error("在设备[" + deviceInfo + "]上找不到此服务:" + myService.getServiceUUID());
                     }
-                } else {
-                    log.error("在设备[" + deviceInfo + "]上找不到此服务:" + myService.getServiceUUID());
-                }
 
-                if (!operateSuccess) {
                     iterator.remove();
                 }
+
+
             }
         }
     }
 
-
-    private boolean processOperation(BleService myService, BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
+    private boolean processOperation(BleOperation myService, BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
         log.debug("开始:" + myService);
+
         boolean operateSuccess = false;
-        BleService.OperateType operateType = myService.getOperateType();
+        BleOperation.Type operateType = myService.getOperateType();
+
         // Nofity或Indicate
-        if (operateType == BleService.OperateType.Notify || operateType == BleService.OperateType.Indicate) {
+        if (operateType == BleOperation.Type.Notify || operateType == BleOperation.Type.Indicate) {
             operateSuccess = notifyCharacteristic(
                     myService,
                     gatt,
                     characteristic,
-                    operateType != BleService.OperateType.Notify);
+                    operateType != BleOperation.Type.Notify);
         }
         // Read
-        else if (operateType == BleService.OperateType.Read) {
+        else if (operateType == BleOperation.Type.Read) {
             operateSuccess = readCharacteristic(myService, gatt,
                     characteristic);
         }
         // write
-        else if (operateType == BleService.OperateType.Write
-                || operateType == BleService.OperateType.WriteWithoutResponse) {
+        else if (operateType == BleOperation.Type.Write
+                || operateType == BleOperation.Type.WriteWithoutResponse) {
 
 
             writeLock.lock();
@@ -702,7 +530,7 @@ public class BleBus {
                             gatt,
                             characteristic,
                             packet,
-                            operateType == BleService.OperateType.Write);
+                            operateType == BleOperation.Type.Write);
 
                     try {
                         writeCondition.await(200, TimeUnit.MILLISECONDS);
@@ -718,23 +546,27 @@ public class BleBus {
             } finally {
                 writeLock.unlock();
             }
+        }
+        // DisableNotify or DisableIndicate
+        else if (myService.getOperateType() == BleOperation.Type.DisableNotify || myService.getOperateType() == BleOperation.Type.DisableIndicate) {
+            operateSuccess = true;
+
+            BluetoothGattService s = gatt.getService(myService.getServiceUUID());
+            if (s != null) {
+                final BluetoothGattCharacteristic c = s.getCharacteristic(myService.getCharacteristicUUID());
+                if (c != null) {
+                    log.debug("停止 " + myService);
+                    operateSuccess = disableNotifyCharacteristic(myService, gatt, c);
+                }
+            }
+
         } else {
             log.error("无效的 operateType" + operateType + " 来自" + myService);
         }
         return operateSuccess;
     }
 
-
-    /**
-     * 开启Notify/Indicate
-     *
-     * @param myService
-     * @param gatt
-     * @param characteristic
-     * @param isIndicate
-     * @return
-     */
-    private boolean notifyCharacteristic(final BleService myService,
+    private boolean notifyCharacteristic(final BleOperation myService,
                                          BluetoothGatt gatt,
                                          final BluetoothGattCharacteristic characteristic, boolean isIndicate) {
 
@@ -752,205 +584,49 @@ public class BleBus {
 
         // 如果失败了
         if (!result) {
-            mListener.listenOperateResult(myService, characteristic.getUuid(), false);
+            mListener.operationEnableResult(myService.deviceAddress, myService.serviceUUID, characteristic.getUuid(), false);
         }
-        myService.setOperating(result);
         return result;
     }
 
 
-    /**
-     * 关闭Notify/Indicate
-     *
-     * @param myService
-     * @param gatt
-     * @param characteristic
-     * @return
-     */
-    private boolean disableNotifyCharacteristic(final BleService myService,
+    private boolean disableNotifyCharacteristic(final BleOperation myService,
                                                 BluetoothGatt gatt, final BluetoothGattCharacteristic characteristic) {
 
         boolean result = gatt.setCharacteristicNotification(characteristic, false);
-        if (result) {
-            myService.setOperating(false);
-        } else {
+        if (!result) {
             log.error(myService.toString() + " 中的" + characteristic.getUuid().toString() + " 停止notify失败了");
         }
         return result;
     }
 
-    /**
-     * 读取
-     *
-     * @param service
-     * @param gatt
-     * @param characteristic
-     * @return
-     */
-    private boolean readCharacteristic(BleService service, BluetoothGatt gatt,
+    private boolean readCharacteristic(BleOperation service, BluetoothGatt gatt,
                                        BluetoothGattCharacteristic characteristic) {
         boolean success = gatt.readCharacteristic(characteristic);
         if (!success) {
-            mListener.readOperateResult(service, characteristic.getUuid(), false);
+            mListener.operationEnableResult(service.deviceAddress, service.serviceUUID, characteristic.getUuid(), false);
         }
-        service.setOperating(success);
         return success;
     }
 
-    /**
-     * 写入
-     *
-     * @param service
-     * @param gatt
-     * @param characteristic
-     * @param data
-     * @param withResponse
-     * @return
-     */
-    private boolean writeCharacteristic(BleService service, BluetoothGatt gatt,
+    private boolean writeCharacteristic(BleOperation service, BluetoothGatt gatt,
                                         BluetoothGattCharacteristic characteristic, byte[] data,
                                         boolean withResponse) {
         characteristic.setWriteType(withResponse ? BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT : BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE);
         characteristic.setValue(data);
         boolean success = gatt.writeCharacteristic(characteristic);
         if (!success) {
-            mListener.writeOperateResult(service, characteristic.getUuid(), false);
+            mListener.operationEnableResult(service.deviceAddress, service.serviceUUID, characteristic.getUuid(), false);
         }
-
-        service.setOperating(success);
         return success;
     }
-
-
-    private BleService getExistsService(BleService service) {
-        int index = mServices.indexOf(service);
-        if (index >= 0) {
-            return mServices.get(index);
-        }
-        return null;
-    }
-
-
-    private boolean matchService(BleService service, BluetoothGatt gatt,
-                                 BluetoothGattCharacteristic characteristic) {
-        return service.getCharacteristicUUID().equals(characteristic.getUuid())
-                && service.getDeviceAddress().equals(gatt.getDevice().getAddress())
-                && service.getServiceUUID().equals(characteristic.getService().getUuid());
-    }
-
-
-    /**
-     * 默认的监听器,用于将所有的回调从主线程发送给用户指定的监听器
-     */
-    private IBusListener mListener = new IBusListener() {
-        @Override
-        public void deviceConnecting(final String address) {
-            mHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    mCustomListener.deviceConnecting(address);
-                }
-            });
-        }
-
-        @Override
-        public void deviceConnectFail(final String address) {
-            mHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    mCustomListener.deviceConnectFail(address);
-                }
-            });
-        }
-
-        @Override
-        public void deviceConnected(final String address) {
-            mHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    mCustomListener.deviceConnected(address);
-                }
-            });
-        }
-
-        @Override
-        public void deviceDisconnected(final String address) {
-            mHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    mCustomListener.deviceDisconnected(address);
-                }
-            });
-        }
-
-        @Override
-        public void openBluetoothFailed() {
-            mHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    mCustomListener.openBluetoothFailed();
-                }
-            });
-        }
-
-        @Override
-        public void deviceRssiRead(final String address, final boolean success, final int rssi) {
-            mHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    mCustomListener.deviceRssiRead(address, success, rssi);
-                }
-            });
-        }
-
-        @Override
-        public void listenOperateResult(final BleService service, final UUID characteristic, final boolean success) {
-            mHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    mCustomListener.listenOperateResult(service, characteristic, success);
-                }
-            });
-        }
-
-        @Override
-        public void writeOperateResult(final BleService service, final UUID characteristic, final boolean success) {
-            mHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    mCustomListener.writeOperateResult(service, characteristic, success);
-                }
-            });
-        }
-
-        @Override
-        public void readOperateResult(final BleService service, final UUID characteristic, final boolean success) {
-            mHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    mCustomListener.readOperateResult(service, characteristic, success);
-                }
-            });
-        }
-
-        @Override
-        public void dataReceived(final BleService service, final UUID characteristic, final byte[] data) {
-            mHandler.post(new Runnable() {
-                @Override
-                public void run() {
-//                    log.info("收到数据:"+Utils.toHexString(data)+",来自:"+service);
-                    mCustomListener.dataReceived(service, characteristic, data);
-                }
-            });
-        }
-    };
 
     private final BroadcastReceiver mBluetoothStateReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             final String action = intent.getAction();
 
-            if (action.equals(BluetoothAdapter.ACTION_STATE_CHANGED)) {
+            if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(action)) {
                 final int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE,
                         BluetoothAdapter.ERROR);
                 switch (state) {

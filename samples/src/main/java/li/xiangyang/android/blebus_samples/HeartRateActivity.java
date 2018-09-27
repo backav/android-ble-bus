@@ -3,7 +3,6 @@ package li.xiangyang.android.blebus_samples;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.content.Intent;
-import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -11,8 +10,7 @@ import android.widget.Toast;
 import java.util.UUID;
 
 import li.xiangyang.android.blebus.BleBus;
-import li.xiangyang.android.blebus.BleService;
-import li.xiangyang.android.blebus.IBusListener;
+import li.xiangyang.android.blebus.IListener;
 
 public class HeartRateActivity extends Activity {
     private final static UUID UUID_SERVICE_HEARTRATE = UUID
@@ -35,7 +33,7 @@ public class HeartRateActivity extends Activity {
         Intent in = getIntent();
         mDeviceAddress = in.getStringExtra("address");
 
-        mBus = new BleBus(this, new IBusListener() {
+        mBus = new BleBus(this, new IListener() {
             @Override
             public void deviceConnected(String address) {
                 toast("设备连接成功");
@@ -47,9 +45,19 @@ public class HeartRateActivity extends Activity {
             }
 
             @Override
-            public void openBluetoothFailed() {
+            public void bluetoothClosed() {
                 toast("请打开蓝牙");
                 startActivity(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE));
+            }
+
+            @Override
+            public void deviceConnecting(String address) {
+
+            }
+
+            @Override
+            public void deviceConnectFail(String address) {
+
             }
 
             @Override
@@ -58,22 +66,7 @@ public class HeartRateActivity extends Activity {
             }
 
             @Override
-            public void listenOperateResult(BleService service, UUID characteristic, boolean success) {
-
-            }
-
-            @Override
-            public void writeOperateResult(BleService service, UUID characteristic, boolean success) {
-
-            }
-
-            @Override
-            public void readOperateResult(BleService service, UUID characteristic, boolean success) {
-
-            }
-
-            @Override
-            public void dataReceived(BleService service, UUID characteristic, final byte[] data) {
+            public void dataReceived(String address, UUID service, UUID characteristic, final byte[] data) {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -81,9 +74,24 @@ public class HeartRateActivity extends Activity {
                     }
                 });
             }
+
+            @Override
+            public void operationReadResult(String address, UUID service, UUID characteristic, boolean success) {
+
+            }
+
+            @Override
+            public void operationWriteResult(String address, UUID service, UUID characteristic, boolean success) {
+
+            }
+
+            @Override
+            public void operationEnableResult(String address, UUID service, UUID characteristic, boolean success) {
+
+            }
         });
 
-        mBus.listen(new BleService(mDeviceAddress, UUID_SERVICE_HEARTRATE, UUID_C_HEARTRATE, BleService.OperateType.Notify));
+        mBus.enableNotify(mDeviceAddress, UUID_SERVICE_HEARTRATE, UUID_C_HEARTRATE);
     }
 
 

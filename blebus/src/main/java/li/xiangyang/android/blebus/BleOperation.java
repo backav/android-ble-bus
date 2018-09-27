@@ -3,82 +3,51 @@ package li.xiangyang.android.blebus;
 import java.util.Arrays;
 import java.util.UUID;
 
-/**
- * 当前类抽象了一个蓝牙设备的服务(指定服务,属性以及属性的操作)
- *
- * @author bac
- */
-public class BleService {
+public class BleOperation {
 
-    private String deviceAddress;
-    private UUID serviceUUID;
-    private UUID characteristicUUID;
-    private boolean characteristicOperating = false;
-    private int tag;
+    protected String deviceAddress;
+    protected UUID serviceUUID;
+    protected UUID characteristicUUID;
 
-    private OperateType operateType = OperateType.Notify;
+    private Type operateType = Type.Notify;
 
     private byte[] writeData;
 
-    public BleService(String address, UUID serviceUuid, UUID characteristicUuid, OperateType opType) {
+    BleOperation(String address, UUID serviceUuid, UUID characteristicUuid, Type opType) {
         this.serviceUUID = serviceUuid;
         characteristicUUID = characteristicUuid;
         deviceAddress = address;
         operateType = opType;
     }
 
-    public BleService(String address, UUID serviceUuid, UUID characteristicUuid, byte[] data, boolean withResponse) {
+    BleOperation(String address, UUID serviceUuid, UUID characteristicUuid, byte[] data, boolean withResponse) {
 
         this.serviceUUID = serviceUuid;
         characteristicUUID = characteristicUuid;
         deviceAddress = address;
-        operateType = withResponse ? OperateType.Write : OperateType.WriteWithoutResponse;
+        operateType = withResponse ? Type.Write : Type.WriteWithoutResponse;
         writeData = data;
     }
 
-    public UUID getServiceUUID() {
+    UUID getServiceUUID() {
         return serviceUUID;
     }
 
-    public String getDeviceAddress() {
+    String getDeviceAddress() {
         return deviceAddress;
     }
 
 
-    public UUID getCharacteristicUUID() {
+    UUID getCharacteristicUUID() {
         return characteristicUUID;
     }
 
-    public OperateType getOperateType() {
+    Type getOperateType() {
         return operateType;
     }
 
-    public byte[] getWritingData() {
+    byte[] getWritingData() {
         return writeData;
-    }
-
-    /**
-     * 判断是否处于操作中状态,比如监听中
-     *
-     * @return
-     */
-    public boolean isOperating() {
-        return characteristicOperating;
-    }
-
-    public void setOperating(boolean operating) {
-        characteristicOperating = operating;
-    }
-    public void resetOperating() {
-        characteristicOperating = false;
-    }
-
-    public int getTag() {
-        return tag;
-    }
-
-    public void setTag(int tag) {
-        this.tag = tag;
     }
 
     @Override
@@ -89,8 +58,8 @@ public class BleService {
 
     @Override
     public boolean equals(Object o) {
-        if (o instanceof BleService) {
-            BleService s = (BleService) o;
+        if (o instanceof BleOperation) {
+            BleOperation s = (BleOperation) o;
             if (s.deviceAddress.equals(this.deviceAddress)
                     && s.serviceUUID.equals(this.serviceUUID)
                     && s.operateType.equals(this.operateType)
@@ -109,27 +78,25 @@ public class BleService {
     public String toString() {
         StringBuffer sb = new StringBuffer();
         sb.append(operateType.toString());
-        if (operateType == OperateType.Write || operateType == OperateType.WriteWithoutResponse) {
+        if (operateType == Type.Write || operateType == Type.WriteWithoutResponse) {
             sb.append(" " + Utils.toHexString(writeData)).append(" to");
         }
         sb.append(" ").append(characteristicUUID);
-//        sb.append(" " + serviceType + " 设备(" + deviceAddress + ")的" + serviceType.toString() + "数据");
-//        if (serviceType.equals(BLEServiceType.Custom)) {
-//            sb.append(",service:").append(serviceUUID);
-//        }
         return sb.toString();
     }
 
-    public enum OperateType {
+    public enum Type {
         Read("Read"),
         Write("Write"),
         WriteWithoutResponse("WriteWithoutResponse"),
         Notify("Notify"),
-        Indicate("Indicate");
+        Indicate("Indicate"),
+        DisableNotify("DisableNotify"),
+        DisableIndicate("DisableIndicate");;
 
         private String desc;
 
-        OperateType(String desc) {
+        Type(String desc) {
             this.desc = desc;
         }
 
