@@ -33,7 +33,7 @@ import java.util.concurrent.locks.ReentrantLock;
 @SuppressLint("NewApi")
 public class BleBus {
 
-    private final int SCAN_PERIOD = 5;// 搜索限制时间/重新连接时间 单位:秒
+    private final int SCAN_PERIOD = 10;// 搜索限制时间/重新连接时间 单位:秒
 
     private Context mContext;
     private Handler mHandler;
