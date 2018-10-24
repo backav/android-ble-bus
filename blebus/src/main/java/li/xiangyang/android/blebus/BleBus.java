@@ -364,7 +364,10 @@ public class BleBus {
             BluetoothGatt gatt = mConnectingGatts.get(device.getAddress());
             if (gatt != null) {
                 log.debug("停止之前的连接尝试,开始连接设备:" + deviceInfo);
-                gatt.close();
+                try {
+                    gatt.close();
+                } catch (Exception ignored) {
+                }
             } else {
                 log.debug("连接设备:" + deviceInfo);
             }
@@ -555,9 +558,9 @@ public class BleBus {
                                           final int status) {
 
             writeLock.lock();
-            try{
+            try {
                 writeCondition.signal();
-            }finally {
+            } finally {
                 writeLock.unlock();
             }
 
@@ -666,7 +669,8 @@ public class BleBus {
     }
 
 
-    private boolean processOperation(BleService myService, BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
+    private boolean processOperation(BleService myService, BluetoothGatt
+            gatt, BluetoothGattCharacteristic characteristic) {
         log.debug("开始:" + myService);
         boolean operateSuccess = false;
         BleService.OperateType operateType = myService.getOperateType();
