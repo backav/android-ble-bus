@@ -340,8 +340,14 @@ public class BleBus {
                 @Override
                 public void run() {
                     connecting = false;
-                    log.debug("搜索超时,停止搜索");
-                    mBluetoothAdapter.stopLeScan(leScanCallback);
+
+                    try {
+                        log.debug("搜索超时,停止搜索");
+                        mBluetoothAdapter.stopLeScan(leScanCallback);
+                    } catch (Exception e) {
+                        log.error(e.getMessage());
+                    }
+
                     startConnect();
                 }
             }, SCAN_PERIOD * 1000);
